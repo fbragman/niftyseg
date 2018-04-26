@@ -3,6 +3,8 @@
 #include "_seg_common.h"
 #include "_seg_tools.h"
 #include "_seg_Topo.h"
+#include <algorithm>
+#include <cmath>
 
 using namespace std;
 #define SegPrecisionTYPE float
@@ -45,6 +47,7 @@ void Usage(char *exec)
   printf("\n\t* * Image similarity: Local metrics * *\n");
   printf("\t-lncc\t<file> <std>\tLocal CC between current img and <int> on a kernel with <std>\n");
   printf("\t-lssd\t<file> <std>\tLocal SSD between current img and <int> on a kernel with <std>\n");
+  printf("\t-lssim\t<file> <std>\tLocal SSIM between current img and <int> on a kernel with <std>\n");
   //printf("\t-lmi\t<file> <std>\tLocal MI between current img and <int> on a kernel with <std>\n");
   printf("\n\t* * Image header operations * *\n");
   printf("\t-hdr_copy <file> \tCopy header from working image to <file> and save in <output>.\n");
@@ -744,6 +747,75 @@ int main(int argc, char **argv)
             }
           nifti_image_free(NewImage);
         }
+      // *********************  Get SSIM  *************************
+      else if(strcmp(argv[i], "-ssim") == 0){
+          string parser=argv[++i];
+          nifti_image * NewImage=nifti_image_read(parser.c_str(),true);
+          if(NewImage->datatype!=DT_FLOAT32){
+              seg_changeDatatype<float>(NewImage);
+            }
+          SegPrecisionTYPE * NewImagePtr = static_cast<SegPrecisionTYPE *>(NewImage->data);
+
+          string parserstd=argv[++i];
+          if(strtod(parserstd.c_str(),NULL)){
+              if(NewImage->nt<2&&NewImage->nx==InputImage->nx&&NewImage->ny==InputImage->ny&&NewImage->nz==InputImage->nz){
+
+                  float * NewImageMean=new float [NewImage->nx*NewImage->ny*NewImage->nz];
+                  float * NewImageStd=new float [NewImage->nx*NewImage->ny*NewImage->nz];
+                  float * InputImageMean=new float [InputImage->nx*InputImage->ny*InputImage->nz];
+                  float * InputImageStd=new float [InputImage->nx*InputImage->ny*InputImage->nz];
+
+                  float * CovImage=new float [InputImage->nx*InputImage->ny*InputImage->nz];
+
+                  for(int index=0; index<InputImage->nx*InputImage->ny*InputImage->nz;index++){
+
+                      NewImageMean[index]=NewImagePtr[index];
+                      NewImageStd[index]=NewImagePtr[index]*NewImagePtr[index];
+                      InputImageMean[index]=bufferImages[current_buffer][index];
+                      InputImageStd[index]=bufferImages[current_buffer][index]*bufferImages[current_buffer][index];
+
+                    }
+
+                  int numVoxels = InputImage->nx*InputImage->ny*InputImage->nz;
+
+                  float max_image_1 = * (max_element(NewImageMean, NewImageMean + numVoxels));
+                  float max_image_2 = * (max_element(InputImageMean, InputImageMean + numVoxels));
+
+                  float min_image_1 = * (min_element(NewImageMean, NewImageMean + numVoxels));
+                  float min_image_2 = * (min_element(InputImageMean, InputImageMean + numVoxels));
+
+                  float C1 = powf(( max(max_image_1, max_image_2) / (max(min(min_image_1, min_image_2), 1.f)*0.001) ), 2);
+                  float C2 = powf(( max(max_image_1, max_image_2) / (max(min(min_image_1, min_image_2), 1.f)*0.003) ), 2);
+
+                  Gaussian_Filter_4D(bufferImages[current_buffer],strtod(parserstd.c_str(),NULL),CurrSize);
+                  Gaussian_Filter_4D(NewImageMean,strtod(parserstd.c_str(),NULL),CurrSize);
+                  Gaussian_Filter_4D(NewImageStd,strtod(parserstd.c_str(),NULL),CurrSize);
+                  Gaussian_Filter_4D(InputImageMean,strtod(parserstd.c_str(),NULL),CurrSize);
+                  Gaussian_Filter_4D(InputImageStd,strtod(parserstd.c_str(),NULL),CurrSize);
+
+                  for(int index=0; index<InputImage->nx*InputImage->ny*InputImage->nz;index++){
+
+                      NewImageStd[index]=NewImageStd[index]-NewImageMean[index]*NewImageMean[index];
+                      InputImageStd[index]=InputImageStd[index]-InputImageMean[index]*InputImageMean[index];
+
+                    }
+                  current_buffer=current_buffer?0:1;
+                  delete [] NewImageMean;
+                  delete [] NewImageStd;
+                  delete [] InputImageMean;
+                  delete [] InputImageStd;
+                }
+              else{
+                  cout << "ERROR: Image "<< parser << " is the wrong size"<<endl;
+                  i=argc;
+                }
+            }
+          else{
+              cout << "ERROR: "<< string() << " is not a float"<<endl;
+              i=argc;
+            }
+          nifti_image_free(NewImage);
+      }
       // *********************  output data type  *************************
       else if(strcmp(argv[i], "-odt") == 0){
           string parser=argv[++i];
