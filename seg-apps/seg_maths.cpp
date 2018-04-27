@@ -761,18 +761,18 @@ int main(int argc, char **argv)
               if(NewImage->nt<2&&NewImage->nx==InputImage->nx&&NewImage->ny==InputImage->ny&&NewImage->nz==InputImage->nz){
 
                   float * NewImageMean=new float [NewImage->nx*NewImage->ny*NewImage->nz];
-                  float * NewImageStd=new float [NewImage->nx*NewImage->ny*NewImage->nz];
+                  float * NewImageVar=new float [NewImage->nx*NewImage->ny*NewImage->nz];
                   float * InputImageMean=new float [InputImage->nx*InputImage->ny*InputImage->nz];
-                  float * InputImageStd=new float [InputImage->nx*InputImage->ny*InputImage->nz];
+                  float * InputImageVar=new float [InputImage->nx*InputImage->ny*InputImage->nz];
 
                   float * CovImage=new float [InputImage->nx*InputImage->ny*InputImage->nz];
 
                   for(int index=0; index<InputImage->nx*InputImage->ny*InputImage->nz;index++){
 
                       NewImageMean[index]=NewImagePtr[index];
-                      NewImageStd[index]=NewImagePtr[index]*NewImagePtr[index];
+                      NewImageVar[index]=NewImagePtr[index]*NewImagePtr[index];
                       InputImageMean[index]=bufferImages[current_buffer][index];
-                      InputImageStd[index]=bufferImages[current_buffer][index]*bufferImages[current_buffer][index];
+                      InputImageVar[index]=bufferImages[current_buffer][index]*bufferImages[current_buffer][index];
 
                     }
 
@@ -787,23 +787,62 @@ int main(int argc, char **argv)
                   float C1 = powf(( max(max_image_1, max_image_2) / (max(min(min_image_1, min_image_2), 1.f)*0.001) ), 2);
                   float C2 = powf(( max(max_image_1, max_image_2) / (max(min(min_image_1, min_image_2), 1.f)*0.003) ), 2);
 
-                  Gaussian_Filter_4D(bufferImages[current_buffer],strtod(parserstd.c_str(),NULL),CurrSize);
-                  Gaussian_Filter_4D(NewImageMean,strtod(parserstd.c_str(),NULL),CurrSize);
-                  Gaussian_Filter_4D(NewImageStd,strtod(parserstd.c_str(),NULL),CurrSize);
-                  Gaussian_Filter_4D(InputImageMean,strtod(parserstd.c_str(),NULL),CurrSize);
-                  Gaussian_Filter_4D(InputImageStd,strtod(parserstd.c_str(),NULL),CurrSize);
+                  cout << "C1=" << C1 << endl;
+                  cout << "C2=" << C2 << endl;
 
+                  // E[X]
+                  Gaussian_Filter_4D(NewImageMean,strtod(parserstd.c_str(),NULL),CurrSize);
+                  // E[X^2]
+                  Gaussian_Filter_4D(NewImageVar,strtod(parserstd.c_str(),NULL),CurrSize);
+                  // E[X]
+                  Gaussian_Filter_4D(InputImageMean,strtod(parserstd.c_str(),NULL),CurrSize);
+                  // E[X^2]
+                  Gaussian_Filter_4D(InputImageVar,strtod(parserstd.c_str(),NULL),CurrSize);
+
+
+                  float * tmpNewImage=new float[NewImage->nx*NewImage->ny*NewImage->nz];
+                  float * tmpInputImage=new float[InputImage->nx*InputImage->ny*InputImage->nz];
+
+                  // X - E[X]
+                  for(int index=0; index<InputImage->nx*InputImage->ny*InputImage->nz;index++){
+                      tmpNewImage[index]=NewImagePtr[index]-NewImageMean[index];
+                      tmpInputImage[index]=bufferImages[current_buffer][index]-InputImageMean[index];
+                  }
+
+                  // E[(X-E[X])]
+                  Gaussian_Filter_4D(tmpNewImage, strtod(parserstd.c_str(),NULL),CurrSize);
+                  Gaussian_Filter_4D(tmpInputImage, strtod(parserstd.c_str(),NULL),CurrSize);
+
+                  // Var[X] = E[X^2] - E[X]^2
                   for(int index=0; index<InputImage->nx*InputImage->ny*InputImage->nz;index++){
 
-                      NewImageStd[index]=NewImageStd[index]-NewImageMean[index]*NewImageMean[index];
-                      InputImageStd[index]=InputImageStd[index]-InputImageMean[index]*InputImageMean[index];
+                      NewImageVar[index]=NewImageVar[index]-NewImageMean[index]*NewImageMean[index];
+                      InputImageVar[index]=InputImageVar[index]-InputImageMean[index]*InputImageMean[index];
 
                     }
+
+                  // COV[X,Y] = E[(X-E[X])]E[(Y-E[Y])]
+                  for(int index=0; index<InputImage->nx*InputImage->ny*InputImage->nz;index++){
+                      CovImage[index]=tmpNewImage[index]*tmpInputImage[index];
+                  }
+                  delete [] tmpNewImage;
+                  delete [] tmpInputImage;
+
+                  // Calculate SSIM
+                  for(int index=0; index<InputImage->nx*InputImage->ny*InputImage->nz;index++){
+
+                        bufferImages[current_buffer?0:1][index] = ((2*NewImageMean[index]*InputImageMean[index] + C1)*(2*CovImage[index] +C2))/
+                                                                  ((NewImageMean[index]*NewImageMean[index] + InputImageMean[index]*InputImageMean[index] + C1)*
+                                                                  (NewImageVar[index] + InputImageVar[index] + C2));
+                  }
+                  delete [] CovImage;
+
                   current_buffer=current_buffer?0:1;
+
                   delete [] NewImageMean;
-                  delete [] NewImageStd;
+                  delete [] NewImageVar;
                   delete [] InputImageMean;
-                  delete [] InputImageStd;
+                  delete [] InputImageVar;
                 }
               else{
                   cout << "ERROR: Image "<< parser << " is the wrong size"<<endl;
