@@ -47,7 +47,7 @@ void Usage(char *exec)
   printf("\n\t* * Image similarity: Local metrics * *\n");
   printf("\t-lncc\t<file> <std>\tLocal CC between current img and <int> on a kernel with <std>\n");
   printf("\t-lssd\t<file> <std>\tLocal SSD between current img and <int> on a kernel with <std>\n");
-  printf("\t-lssim\t<file> <std>\tLocal SSIM between current img and <int> on a kernel with <std>\n");
+  printf("\t-ssim\t<file> <std>\tLocal SSIM between current img and <int> on a kernel with <std>\n");
   //printf("\t-lmi\t<file> <std>\tLocal MI between current img and <int> on a kernel with <std>\n");
   printf("\n\t* * Image header operations * *\n");
   printf("\t-hdr_copy <file> \tCopy header from working image to <file> and save in <output>.\n");
@@ -747,6 +747,145 @@ int main(int argc, char **argv)
             }
           nifti_image_free(NewImage);
         }
+      //*****CALCULATE SLIDING MEAN***********
+      else if(strcmp(argv[i], "-lmean") == 0){
+          string parser=argv[++i];
+          nifti_image * NewImage=nifti_image_read(parser.c_str(),true);
+          if(NewImage->datatype!=DT_FLOAT32){
+              seg_changeDatatype<float>(NewImage);
+            }
+          SegPrecisionTYPE * NewImagePtr = static_cast<SegPrecisionTYPE *>(NewImage->data);
+
+          string parserstd=argv[++i];
+          if(strtod(parserstd.c_str(),NULL)){
+              if(NewImage->nt<2&&NewImage->nx==InputImage->nx&&NewImage->ny==InputImage->ny&&NewImage->nz==InputImage->nz){
+
+                float * NewImageMean=new float [NewImage->nx*NewImage->ny*NewImage->nz];
+
+                for(int index=0; index<InputImage->nx*InputImage->ny*InputImage->nz;index++){
+                    bufferImages[current_buffer?0:1][index]=NewImagePtr[index];
+                }
+
+                // E[X]
+                Gaussian_Filter_4D(bufferImages[current_buffer?0:1],strtod(parserstd.c_str(),NULL),CurrSize);
+
+                current_buffer=current_buffer?0:1;
+
+                delete [] NewImageMean;
+            }
+          else{
+              cout << "ERROR: Image "<< parser << " is the wrong size"<<endl;
+              i=argc;
+            }
+
+          }
+        else{
+            cout << "ERROR: "<< string() << " is not a float"<<endl;
+            i=argc;
+          }
+        nifti_image_free(NewImage);
+      }
+      //*****CALCULATE SLIDING VAR***********
+      else if(strcmp(argv[i], "-lvar") == 0){
+          string parser=argv[++i];
+          nifti_image * NewImage=nifti_image_read(parser.c_str(),true);
+          if(NewImage->datatype!=DT_FLOAT32){
+              seg_changeDatatype<float>(NewImage);
+            }
+          SegPrecisionTYPE * NewImagePtr = static_cast<SegPrecisionTYPE *>(NewImage->data);
+
+          string parserstd=argv[++i];
+          if(strtod(parserstd.c_str(),NULL)){
+              if(NewImage->nt<2&&NewImage->nx==InputImage->nx&&NewImage->ny==InputImage->ny&&NewImage->nz==InputImage->nz){
+
+                float * NewImageMean=new float [NewImage->nx*NewImage->ny*NewImage->nz];
+
+                for(int index=0; index<InputImage->nx*InputImage->ny*InputImage->nz;index++){
+                    NewImageMean[index]=NewImagePtr[index];
+                    bufferImages[current_buffer?0:1][index]=NewImagePtr[index]*NewImagePtr[index];
+                  }
+
+                // E[X]
+                Gaussian_Filter_4D(NewImageMean,strtod(parserstd.c_str(),NULL),CurrSize);
+                // E[X^2]
+                Gaussian_Filter_4D(bufferImages[current_buffer?0:1],strtod(parserstd.c_str(),NULL),CurrSize);
+                // Var[X] = E[X^2] - E[X]^2
+                for(int index=0; index<InputImage->nx*InputImage->ny*InputImage->nz;index++){
+                    bufferImages[current_buffer?0:1][index]=bufferImages[current_buffer?0:1][index]-NewImageMean[index]*NewImageMean[index];
+                  }
+
+                current_buffer=current_buffer?0:1;
+
+                delete [] NewImageMean;
+            }
+          else{
+              cout << "ERROR: Image "<< parser << " is the wrong size"<<endl;
+              i=argc;
+            }
+
+          }
+        else{
+            cout << "ERROR: "<< string() << " is not a float"<<endl;
+            i=argc;
+          }
+        nifti_image_free(NewImage);
+      }
+      //*****CALCULATE SLIDING COVARIANCE***********
+      else if(strcmp(argv[i], "-lcov") == 0){
+          string parser=argv[++i];
+          nifti_image * NewImage=nifti_image_read(parser.c_str(),true);
+          if(NewImage->datatype!=DT_FLOAT32){
+              seg_changeDatatype<float>(NewImage);
+            }
+          SegPrecisionTYPE * NewImagePtr = static_cast<SegPrecisionTYPE *>(NewImage->data);
+
+          string parserstd=argv[++i];
+          if(strtod(parserstd.c_str(),NULL)){
+              if(NewImage->nt<2&&NewImage->nx==InputImage->nx&&NewImage->ny==InputImage->ny&&NewImage->nz==InputImage->nz){
+
+                  float * NewImageMean=new float [NewImage->nx*NewImage->ny*NewImage->nz];
+                  float * InputImageMean=new float [InputImage->nx*InputImage->ny*InputImage->nz];
+
+                  for(int index=0; index<InputImage->nx*InputImage->ny*InputImage->nz;index++){
+                      NewImageMean[index]=NewImagePtr[index];
+                      InputImageMean[index]=bufferImages[current_buffer][index];
+                    }
+
+                  // E[X]
+                  Gaussian_Filter_4D(NewImageMean,strtod(parserstd.c_str(),NULL),CurrSize);
+                  // E[Y]
+                  Gaussian_Filter_4D(InputImageMean,strtod(parserstd.c_str(),NULL),CurrSize);
+
+                  // E[XY]
+                  float * tmp_xy = new float[InputImage->nx*InputImage->ny*InputImage->nz];
+                  for(int index=0; index<InputImage->nx*InputImage->ny*InputImage->nz;index++){
+                      tmp_xy[index] = NewImagePtr[index]*bufferImages[current_buffer][index];
+
+                  }
+                  Gaussian_Filter_4D(tmp_xy,strtod(parserstd.c_str(),NULL),CurrSize);
+
+                  // COV[X,Y] = E[XY] - E[X]E[Y]
+                  for(int index=0; index<InputImage->nx*InputImage->ny*InputImage->nz;index++){
+                      bufferImages[current_buffer?0:1][index]=tmp_xy[index] - NewImageMean[index]*InputImageMean[index];
+                  }
+                  delete [] tmp_xy;
+
+                current_buffer=current_buffer?0:1;
+
+                delete [] NewImageMean;
+            }
+          else{
+              cout << "ERROR: Image "<< parser << " is the wrong size"<<endl;
+              i=argc;
+            }
+
+          }
+        else{
+            cout << "ERROR: "<< string() << " is not a float"<<endl;
+            i=argc;
+          }
+        nifti_image_free(NewImage);
+      }
       // *********************  Get SSIM  *************************
       else if(strcmp(argv[i], "-ssim") == 0){
           string parser=argv[++i];
@@ -784,11 +923,8 @@ int main(int argc, char **argv)
                   float min_image_1 = * (min_element(NewImageMean, NewImageMean + numVoxels));
                   float min_image_2 = * (min_element(InputImageMean, InputImageMean + numVoxels));
 
-                  float C1 = powf(( max(max_image_1, max_image_2) / (max(min(min_image_1, min_image_2), 1.f)*0.001) ), 2);
-                  float C2 = powf(( max(max_image_1, max_image_2) / (max(min(min_image_1, min_image_2), 1.f)*0.003) ), 2);
-
-                  cout << "C1=" << C1 << endl;
-                  cout << "C2=" << C2 << endl;
+                  float C1 = powf(0.001*( max(max_image_1, max_image_2) / (max(min(min_image_1, min_image_2), 1.f)) ), 2);
+                  float C2 = powf(0.003*( max(max_image_1, max_image_2) / (max(min(min_image_1, min_image_2), 1.f)) ), 2);
 
                   // E[X]
                   Gaussian_Filter_4D(NewImageMean,strtod(parserstd.c_str(),NULL),CurrSize);
@@ -800,19 +936,6 @@ int main(int argc, char **argv)
                   Gaussian_Filter_4D(InputImageVar,strtod(parserstd.c_str(),NULL),CurrSize);
 
 
-                  float * tmpNewImage=new float[NewImage->nx*NewImage->ny*NewImage->nz];
-                  float * tmpInputImage=new float[InputImage->nx*InputImage->ny*InputImage->nz];
-
-                  // X - E[X]
-                  for(int index=0; index<InputImage->nx*InputImage->ny*InputImage->nz;index++){
-                      tmpNewImage[index]=NewImagePtr[index]-NewImageMean[index];
-                      tmpInputImage[index]=bufferImages[current_buffer][index]-InputImageMean[index];
-                  }
-
-                  // E[(X-E[X])]
-                  Gaussian_Filter_4D(tmpNewImage, strtod(parserstd.c_str(),NULL),CurrSize);
-                  Gaussian_Filter_4D(tmpInputImage, strtod(parserstd.c_str(),NULL),CurrSize);
-
                   // Var[X] = E[X^2] - E[X]^2
                   for(int index=0; index<InputImage->nx*InputImage->ny*InputImage->nz;index++){
 
@@ -821,20 +944,33 @@ int main(int argc, char **argv)
 
                     }
 
-                  // COV[X,Y] = E[(X-E[X])]E[(Y-E[Y])]
+                  // E[XY]
+                  float * tmp_xy = new float[InputImage->nx*InputImage->ny*InputImage->nz];
                   for(int index=0; index<InputImage->nx*InputImage->ny*InputImage->nz;index++){
-                      CovImage[index]=tmpNewImage[index]*tmpInputImage[index];
+                      tmp_xy[index] = NewImagePtr[index]*bufferImages[current_buffer][index];
+
                   }
-                  delete [] tmpNewImage;
-                  delete [] tmpInputImage;
+                  Gaussian_Filter_4D(tmp_xy,strtod(parserstd.c_str(),NULL),CurrSize);
+
+                  // COV[X,Y] = E[XY] - E[X]E[Y]
+                  for(int index=0; index<InputImage->nx*InputImage->ny*InputImage->nz;index++){
+                      CovImage[index]=tmp_xy[index] - NewImageMean[index]*InputImageMean[index];
+                  }
+                  delete [] tmp_xy;
 
                   // Calculate SSIM
+                  float * upper=new float [InputImage->nx*InputImage->ny*InputImage->nz];
+                  float * lower=new float [InputImage->nx*InputImage->ny*InputImage->nz];
+
                   for(int index=0; index<InputImage->nx*InputImage->ny*InputImage->nz;index++){
 
-                        bufferImages[current_buffer?0:1][index] = ((2*NewImageMean[index]*InputImageMean[index] + C1)*(2*CovImage[index] +C2))/
-                                                                  ((NewImageMean[index]*NewImageMean[index] + InputImageMean[index]*InputImageMean[index] + C1)*
-                                                                  (NewImageVar[index] + InputImageVar[index] + C2));
+                      upper[index] = (2*NewImageMean[index]*InputImageMean[index] + C1)*(2*CovImage[index] + C2);
+                      lower[index] = (NewImageMean[index]*NewImageMean[index] + InputImageMean[index]*InputImageMean[index] + C1)*(NewImageVar[index] + InputImageVar[index] + C2);
+                      bufferImages[current_buffer?0:1][index] = upper[index] / lower[index];
                   }
+
+                  delete [] upper;
+                  delete [] lower;
                   delete [] CovImage;
 
                   current_buffer=current_buffer?0:1;
